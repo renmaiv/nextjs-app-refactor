@@ -1,154 +1,70 @@
 ---
-name: nextjs-app-router-modularization
+name: nextjs-app-refactor
 description: >
-  Splits mixed Server/Client pages into separate files with clean boundaries — extracting client logic
-  into a `<DescriptiveName>Client.tsx` and rewriting `page.tsx` as a pure Server Component — and flags
-  repeated JSX structures for extraction into shared typed components. Apply when working in a Next.js
-  App Router project and you detect `export const metadata` alongside `"use client"`, hooks in a Server
-  Component, a page file that has grown unwieldy (>200–300 LOC) with interactive logic, or the same
-  layout block duplicated inline multiple times.
+  Splits mixed Server/Client Next.js pages into clean boundaries — extracts client logic into `*Client.tsx`,
+  rewrites `page.tsx` as a pure Server Component, flags repeated JSX for componentisation, and detects
+  styling inconsistencies across the codebase. Trigger on: refactor requests, mixed Server/Client files,
+  pages >200 LOC with hooks, duplicated JSX, or any style drift between components.
 ---
 
-## Confirmation Required
+## Always: Confirm Before Acting
 
-Before making any structural changes, explain:
-
-1. What issue was detected
-2. Why it is a problem
-3. What you plan to change — for example:
-
-   > This page mixes Server and Client concerns (`metadata` + `"use client"`).
-   > I propose extracting a Client Component, converting the page to a Server Component,
-   > and moving all interactive logic into the new file.
-   > Proceed?
-
-**Wait for explicit approval before touching any files.**
+State: what was detected, why it's a problem, what you'll change. **Wait for approval before modifying any file.**
 
 ---
 
 ## Core Rules
 
-- `export const metadata` must never appear in a `"use client"` file
-- `page.tsx` defaults to a Server Component unless there is no metadata and no server-only data needs
+- `metadata` never in a `"use client"` file — use `layout.tsx` if it spans multiple routes
 - Hooks (`useState`, `useEffect`, `useRouter`, etc.) must live in Client Components
+- No partial refactors, duplicate component definitions, or JSX outside component scope
+- Same JSX structure 2+ times inline → extract into a named component
 
 ---
 
 ## When to Refactor
 
-Refactor **only** if one or more of these is true:
-
-- `metadata` exists in a Client Component
-- Server and Client concerns are mixed in the same file
-- The page exceeds ~200–300 LOC and uses hooks
-
-Do **not** refactor unnecessarily. Prefer `layout.tsx` for metadata when it applies to multiple routes.
+- `metadata` in a Client Component, or Server/Client concerns mixed in one file
+- Page >200–300 LOC with hooks
+- User says "refactor"
+- Style drift detected (see below)
 
 ---
 
 ## Refactor Steps
 
-### 1. Create a Client Component
-
-Path: `app/<route>/<DescriptiveName>Client.tsx`
-
-Use a name derived from the route or feature — not a generic placeholder like `PageClient`.
-
-Move into this file:
-- `"use client"` directive
-- All hooks
-- All JSX and component logic
-- All event handlers
-
-### 2. Rewrite `page.tsx` as a Server Component
-
+1. **Create** `app/<route>/<FeatureName>Client.tsx` — move `"use client"`, all hooks, JSX, handlers
+2. **Rewrite** `page.tsx`:
 ```tsx
 import type { Metadata } from 'next';
-import DescriptiveNameClient from './<DescriptiveName>Client';
-
-export const metadata: Metadata = {
-  // add relevant metadata here
-};
-
-export default function Page() {
-  return <DescriptiveNameClient />;
-}
+import FeatureNameClient from './FeatureNameClient';
+export const metadata: Metadata = { /* ... */ };
+export default function Page() { return <FeatureNameClient />; }
 ```
-
-### 3. Cleanup (mandatory)
-
-- Remove all old code from `page.tsx`
-- No hooks in server files
-- No duplicate component definitions
-- No leftover JSX outside component scope
-
-### 4. Validate
-
-- No `"use client"` in `page.tsx`
-- No hooks in Server Components
-- No syntax errors
-- Project builds successfully
+3. **Validate** — no `"use client"` or hooks in `page.tsx`, no syntax errors, project builds
 
 ---
 
 ## Repeated Structure Detection
 
-While reading a file, scan for JSX blocks that share the same structural shape — same nesting, same className pattern, same prop surface — rendered multiple times inline. These are candidates for extraction into a shared component.
-
-**Signals to look for:**
-
-- Two or more JSX blocks with identical or near-identical structure (same wrapper element, same className, same child layout)
-- Repeated patterns distinguished only by data (different `src`, `href`, text, or a mapped array index)
-- Inline `.map()` calls where each item renders more than ~3 elements
-- Copy-pasted blocks with minor value changes and no abstraction
-
-**Example — what to flag:**
-
-```tsx
-// Repeated three times with only `src`, `alt`, `title`, `description` changing
-<div className="section-row">
-  <div className="col-left">
-    <p className="type">...</p>
-  </div>
-  <div className="col-right">
-    <video src="..." />
-    <div className="section-copy">
-      <p className="section-title">...</p>
-      <p className="section-description">...</p>
-    </div>
-  </div>
-</div>
-```
-
-This should become a `<ProjectSection />` component accepting typed props.
-
-**Extraction threshold:** Extract when the same structure appears **2 or more times** and shares at least one className or layout pattern. Do not extract one-offs.
-
-**Naming:** Derive the component name from the content domain, not position — `ProjectSection`, `WorkEntry`, `CaseRow` — not `Section1` or `ItemBlock`.
-
-**Confirmation still applies:** Before extracting, state what you found and propose the component signature. Wait for approval.
+Flag 2+ JSX blocks with identical structure (same wrapper, classNames, child layout) differing only in data values, or `.map()` calls rendering >3 elements per item. Extract into a domain-named component (`ProjectSection`, `WorkEntry`) — not `Section1`. Confirm before extracting.
 
 ---
 
-## Anti-Patterns to Fix
+## Styling Consistency Detection
 
-- `"use client"` + `metadata` in the same file
-- Hooks inside Server Components
-- Duplicate component definitions
-- JSX outside component scope
-- Partial refactors that leave the file in a broken intermediate state
-- Inline duplication of the same JSX structure 2+ times instead of a shared component
+During any refactor or property change, scan for drift. Flag when **2+ places** share an apparently intentional value but express it inconsistently.
 
----
+| Category | What to flag |
+|---|---|
+| **Layout & Spacing** | Duplicate/overriding utilities on one element (`px-4 px-6`); inconsistent scale values across instances; same pattern using different responsive prefixes (`md:` vs `lg:`); `style={{}}` overrides conflicting with classNames; same component with diverging Tailwind variants across call sites |
+| **Color & Tokens** | `text-[#3B82F6]` vs `text-blue-500` — hardcoded hex matching an existing token; `shadow-md`, `shadow-lg`, inline `box-shadow` mixed for the same elevation level |
+| **Structure & Scale** | `<Button />` exists but some sites recreate it with raw classes; same class defined differently across `.module.css` files; hardcoded z-index values with no defined scale |
 
-## Output Requirements
-
-- Provide full updated file contents
-- No placeholders or `// ... rest of component` shortcuts
-- Code must compile
+When detected: list affected files/locations, propose a CSS variable/Tailwind token or base component, wait for approval.
 
 ---
 
-## Principle
+## Output
 
-Prefer clarity over architectural purity. Refactor only when it prevents bugs or enables required functionality. Avoid creating unnecessary files — sometimes a `layout.tsx` handles metadata more cleanly than splitting a page.
+Full file contents only. No placeholders. Code must compile.
